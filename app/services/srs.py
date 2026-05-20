@@ -57,3 +57,17 @@ async def get_pending_reviews(session: AsyncSession, user_id: int) -> list[str]:
     result = await session.execute(query)
     topics = result.scalars().all()
     return list(topics)
+
+async def generate_srs_test(session: AsyncSession, user_id: int) -> str:
+    """
+    Generates a quick review text containing pending topics for self-study.
+    """
+    topics = await get_pending_reviews(session, user_id)
+    if not topics:
+        return "Отлично! У тебя нет карточек для повторения на сегодня."
+
+    text = "🧠 **Твой список для интервального повторения на сегодня:**\n\n"
+    for t in topics:
+        text += f"- <i>{t}</i>\n"
+    text += "\nПостарайся вспомнить правила или перевод этих слов. Если забыл, самое время повторить!"
+    return text

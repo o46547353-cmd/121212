@@ -53,7 +53,10 @@ class User(Base):
     streak: Mapped[int] = mapped_column(Integer, default=0)
     streak_days: Mapped[int] = mapped_column(Integer, default=0)
     xp: Mapped[int] = mapped_column(Integer, default=0)
+    coins: Mapped[int] = mapped_column(Integer, default=0)
     league: Mapped[LeagueEnum] = mapped_column(Enum(LeagueEnum), default=LeagueEnum.bronze)
+    clan_id: Mapped[Optional[int]] = mapped_column(ForeignKey("clans.id"), nullable=True)
+    last_daily_bonus: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -68,6 +71,17 @@ class User(Base):
     quests_received: Mapped[List["Quest"]] = relationship("Quest", back_populates="student", foreign_keys="Quest.student_id")
     progresses: Mapped[List["Progress"]] = relationship("Progress", back_populates="student")
     mistakes: Mapped[List["UserMistake"]] = relationship("UserMistake", back_populates="user")
+    clan: Mapped[Optional["Clan"]] = relationship("Clan", back_populates="members", foreign_keys=[clan_id])
+
+class Clan(Base):
+    __tablename__ = "clans"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(100), unique=True)
+    total_xp: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    members: Mapped[List["User"]] = relationship("User", back_populates="clan", foreign_keys="User.clan_id")
 
 class Subscription(Base):
     __tablename__ = "subscriptions"
@@ -120,6 +134,7 @@ class Pet(Base):
     name: Mapped[str] = mapped_column(String(50))
     health: Mapped[int] = mapped_column(Integer, default=100) # Drops if quests are not done
     happiness: Mapped[int] = mapped_column(Integer, default=100)
+    inventory: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True) # E.g., {"hat": "crown", "toy": "ball"}
 
     user: Mapped["User"] = relationship("User", back_populates="pet")
 

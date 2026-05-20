@@ -34,18 +34,30 @@ def get_track_kb() -> InlineKeyboardMarkup:
 
 def get_student_menu() -> ReplyKeyboardMarkup:
     kb = [
-        [KeyboardButton(text="⚔️ Мои квесты")],
-        [KeyboardButton(text="📊 Мой прогресс (AI-анализ)"), KeyboardButton(text="👤 Мой профиль")]
+        [KeyboardButton(text="⚔️ Мои квесты"), KeyboardButton(text="🐉 AI Битва с Боссом")],
+        [KeyboardButton(text="📊 Мой прогресс (AI-анализ)"), KeyboardButton(text="👤 Мой профиль")],
+        [KeyboardButton(text="🧠 Карточки SRS (Повторение)"), KeyboardButton(text="🎁 Ежедневный бонус")],
+        [KeyboardButton(text="🛍️ Магазин питомца"), KeyboardButton(text="🛡️ Мой Клан")]
     ]
     return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
 
 def get_tutor_menu() -> ReplyKeyboardMarkup:
     kb = [
         [KeyboardButton(text="👥 Мои ученики"), KeyboardButton(text="🎯 Назначить квест")],
-        [KeyboardButton(text="🤖 AI-Отчеты по ученикам")],
+        [KeyboardButton(text="🤖 AI-Отчеты по ученикам"), KeyboardButton(text="📈 Лидерборд учеников")],
+        [KeyboardButton(text="📢 Рассылка ученикам"), KeyboardButton(text="🏆 Создать Клан")],
         [KeyboardButton(text="💳 Управление подпиской")]
     ]
     return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
+
+def get_pet_shop_kb() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🍔 Еда (10 🪙)", callback_data="buy_food")
+    builder.button(text="🎾 Игрушка (15 🪙)", callback_data="buy_toy")
+    builder.button(text="👑 Корона (100 🪙)", callback_data="buy_hat")
+    builder.button(text="🕶️ Очки (50 🪙)", callback_data="buy_glasses")
+    builder.adjust(2)
+    return builder.as_markup()
 
 def get_admin_menu() -> ReplyKeyboardMarkup:
     kb = [

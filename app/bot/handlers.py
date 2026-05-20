@@ -9,12 +9,15 @@ from app.db.models import User, RoleEnum, AgeGroupEnum, LevelEnum, TrackEnum, Qu
 from app.bot.states import RegistrationState, QuestCreationState, QuestSolvingState
 from app.bot.keyboards import (
     get_role_selection_kb, get_age_group_kb, get_level_kb,
-    get_student_menu, get_tutor_menu, get_admin_menu, get_skip_kb, get_track_kb, get_quest_creation_menu
+    get_student_menu, get_tutor_menu, get_admin_menu, get_skip_kb, get_track_kb, get_quest_creation_menu, get_pet_shop_kb
 )
 from app.services.ai import analyze_student_answer
-from app.services.gamification import calculate_earned_xp, update_user_league
-from app.services.srs import process_ai_mistakes, get_pending_reviews
+from app.services.gamification import calculate_earned_xp_and_coins, update_user_league, process_daily_bonus, add_xp_to_clan
+from app.services.srs import process_ai_mistakes, get_pending_reviews, generate_srs_test
 from app.services.quest_library import get_random_pop_culture_quest
+from app.services.pet_shop import buy_pet_item
+from sqlalchemy import update
+from app.db.models import Clan
 
 router = Router()
 
@@ -360,10 +363,14 @@ async def solve_quest(message: Message, state: FSMContext, session: AsyncSession
     tutor_analytics = ai_result.get("tutor_analytics", {})
     await process_ai_mistakes(session, student.id, tutor_analytics)
 
-    # Process Gamification XP and League
-    earned_xp = calculate_earned_xp(tutor_analytics)
+    # Process Gamification XP, Coins, League and Clan
+    earned_xp, earned_coins = calculate_earned_xp_and_coins(tutor_analytics)
     student.xp += earned_xp
+    student.coins += earned_coins
     student, league_msg = update_user_league(student)
+
+    if student.clan_id:
+        await add_xp_to_clan(session, student.clan_id, earned_xp)
 
     # Increase pet happiness/health
     pet_query = await session.execute(select(Pet).where(Pet.user_id == student.id))
@@ -377,7 +384,7 @@ async def solve_quest(message: Message, state: FSMContext, session: AsyncSession
     await state.clear()
 
     feedback = ai_result.get('student_feedback', 'Отлично выполнено!')
-    xp_msg = f"\n\n✨ <b>Ты заработал +{earned_xp} XP!</b> Текущий опыт: <code>{student.xp} XP</code>."
+    xp_msg = f"\n\n✨ <b>Награда:</b> +{earned_xp} XP и +{earned_coins} 🪙!\nТекущий опыт: <code>{student.xp} XP</code> | Монеты: <code>{student.coins} 🪙</code>"
 
     final_msg = f"✅ <b>Квест сдан!</b>\n\n<b>🤖 AI Фидбек:</b>\n<i>{feedback}</i>{xp_msg}"
     if league_msg:
@@ -411,9 +418,168 @@ async def student_profile(message: Message, session: AsyncSession):
         f"📈 <b>Уровень:</b> {student.level.value if student.level else '?'}\n"
         f"🏆 <b>Лига:</b> {league_val}\n"
         f"✨ <b>Опыт:</b> {student.xp} XP\n"
+        f"🪙 <b>Монеты:</b> {student.coins}\n"
         f"🔥 <b>Стрейк:</b> {student.streak_days} дней\n\n"
         f"{pet_info}"
     )
+
+# ================= NEW FEATURES (STUDENT & TUTOR) =================
+
+@router.message(F.text == "🎁 Ежедневный бонус")
+async def student_daily_bonus(message: Message, session: AsyncSession):
+    user_query = await session.execute(select(User).where(User.telegram_id == message.from_user.id))
+    student = user_query.scalar_one_or_none()
+    if not student or student.role != RoleEnum.student:
+        return
+
+    student, success, coins = process_daily_bonus(student)
+    await session.commit()
+
+    if success:
+        await message.answer(f"🎁 <b>Ежедневный бонус получен!</b>\nВам начислено <code>{coins} 🪙</code>. Заходите завтра!")
+    else:
+        await message.answer("⏳ <b>Бонус уже получен.</b> Возвращайтесь через 24 часа!")
+
+@router.message(F.text == "🛍️ Магазин питомца")
+async def student_pet_shop(message: Message, session: AsyncSession):
+    user_query = await session.execute(select(User).where(User.telegram_id == message.from_user.id))
+    student = user_query.scalar_one_or_none()
+    if not student or student.role != RoleEnum.student:
+        return
+
+    await message.answer(f"🛍️ <b>Добро пожаловать в Магазин!</b>\nУ вас: <code>{student.coins} 🪙</code>\n\nКупите что-нибудь для своего питомца:", reply_markup=get_pet_shop_kb())
+
+@router.callback_query(F.data.startswith("buy_"))
+async def process_pet_shop_buy(callback: CallbackQuery, session: AsyncSession):
+    item_id = callback.data.split("_")[1]
+
+    user_query = await session.execute(select(User).where(User.telegram_id == callback.from_user.id))
+    student = user_query.scalar_one_or_none()
+
+    pet_query = await session.execute(select(Pet).where(Pet.user_id == student.id))
+    pet = pet_query.scalar_one_or_none()
+
+    if not pet:
+        await callback.answer("У вас нет питомца!", show_alert=True)
+        return
+
+    success, msg = buy_pet_item(student, pet, item_id)
+    if success:
+        await session.commit()
+        await callback.message.edit_text(f"🛍️ {msg}\nОстаток монет: <code>{student.coins} 🪙</code>")
+    else:
+        await callback.answer(msg, show_alert=True)
+
+@router.message(F.text == "🧠 Карточки SRS (Повторение)")
+async def student_srs_cards(message: Message, session: AsyncSession):
+    user_query = await session.execute(select(User).where(User.telegram_id == message.from_user.id))
+    student = user_query.scalar_one_or_none()
+    if not student or student.role != RoleEnum.student:
+        return
+
+    text = await generate_srs_test(session, student.id)
+    await message.answer(text)
+
+@router.message(F.text == "🛡️ Мой Клан")
+async def student_clan(message: Message, session: AsyncSession):
+    user_query = await session.execute(select(User).where(User.telegram_id == message.from_user.id))
+    student = user_query.scalar_one_or_none()
+    if not student or student.role != RoleEnum.student:
+        return
+
+    if not student.clan_id:
+        await message.answer("🛡️ <b>У вас пока нет Клана.</b>\nПопросите репетитора добавить вас в клан для участия в Клановых Войнах (Clan Wars)!")
+        return
+
+    clan_query = await session.execute(select(Clan).where(Clan.id == student.clan_id))
+    clan = clan_query.scalar_one_or_none()
+
+    members_query = await session.execute(select(func.count()).select_from(User).where(User.clan_id == clan.id))
+    members_count = members_query.scalar()
+
+    await message.answer(f"🛡️ <b>Клан:</b> {clan.name}\n⭐ <b>Общий опыт клана:</b> {clan.total_xp} XP\n👥 <b>Участников:</b> {members_count}")
+
+@router.message(F.text == "🐉 AI Битва с Боссом")
+async def student_boss_battle(message: Message, state: FSMContext, session: AsyncSession):
+    # Boss Battle logic utilizes the hardcoded boss quests from the library.
+    # We assign one to the student immediately for an epic encounter.
+    user_query = await session.execute(select(User).where(User.telegram_id == message.from_user.id))
+    student = user_query.scalar_one_or_none()
+    if not student or student.role != RoleEnum.student:
+        return
+
+    boss_prompt = "🐉 **БОСС: Смауг!** Дракон проснулся. Убеди его не сжигать твой город. Приведи 3 логичных аргумента на английском, используя условные предложения (Если ты сожжешь город, то...)."
+
+    # Create a temporary quest for the boss
+    quest = Quest(
+        tutor_id=student.tutor_id or student.id,  # fallback if no tutor
+        student_id=student.id,
+        track=TrackEnum.writing,
+        content=boss_prompt
+    )
+    session.add(quest)
+    await session.flush() # Get ID without full commit to keep transaction active for state
+
+    await state.update_data(current_quest_id=quest.id)
+    await state.set_state(QuestSolvingState.waiting_for_answer)
+    await session.commit()
+
+    await message.answer(f"🔥 <b>AI БОСС БАТТЛ НАЧАЛСЯ!</b> 🔥\n\n<blockquote>{boss_prompt}</blockquote>\n\n⚔️ <i>Напиши свой ответ, чтобы нанести урон боссу:</i>")
+
+@router.message(F.text == "📈 Лидерборд учеников")
+async def tutor_leaderboard(message: Message, session: AsyncSession):
+    user_query = await session.execute(select(User).where(User.telegram_id == message.from_user.id))
+    tutor = user_query.scalar_one_or_none()
+    if not tutor or tutor.role != RoleEnum.tutor:
+        return
+
+    students_query = await session.execute(
+        select(User).where(User.tutor_id == tutor.id).order_by(User.xp.desc()).limit(10)
+    )
+    students = students_query.scalars().all()
+
+    if not students:
+        await message.answer("🔍 У вас пока нет учеников для формирования лидерборда.")
+        return
+
+    text = "🏆 <b>Топ ваших учеников по XP:</b>\n\n"
+    for i, s in enumerate(students, 1):
+        text += f"{i}. <b>{s.full_name}</b> — <code>{s.xp} XP</code> ({s.league.value})\n"
+    await message.answer(text)
+
+@router.message(F.text == "🏆 Создать Клан")
+async def tutor_create_clan(message: Message, session: AsyncSession):
+    # Minimal stub for creating a clan quickly (real app would use FSM)
+    user_query = await session.execute(select(User).where(User.telegram_id == message.from_user.id))
+    tutor = user_query.scalar_one_or_none()
+    if not tutor or tutor.role != RoleEnum.tutor:
+        return
+
+    clan_name = f"Клан Репетитора {tutor.full_name}"
+
+    # Check if exists
+    existing = await session.execute(select(Clan).where(Clan.name == clan_name))
+    if existing.scalar_one_or_none():
+        await message.answer("❌ Вы уже создали клан!")
+        return
+
+    new_clan = Clan(name=clan_name)
+    session.add(new_clan)
+    await session.commit()
+
+    # Auto-assign all tutor's students to this clan
+    await session.execute(
+        update(User).where(User.tutor_id == tutor.id).values(clan_id=new_clan.id)
+    )
+    await session.commit()
+
+    await message.answer(f"🏆 <b>Клан «{clan_name}» успешно создан!</b>\nВсе ваши текущие ученики добавлены в него автоматически.")
+
+@router.message(F.text == "📢 Рассылка ученикам")
+async def tutor_broadcast(message: Message, state: FSMContext, session: AsyncSession):
+    # A simple broadcast logic (Requires FSM usually, but we implement a placeholder for immediate response)
+    # The actual FSM would be similar to Quest Creation. For completeness without adding 3 more states:
+    await message.answer("📢 <b>Функция рассылки:</b>\nЧтобы сделать рассылку, перейдите в панель Админа или назначьте массовый квест. (Функционал массовой рассылки сообщений активируется в следующем патче).")
 
 # ================= TEST COMMAND =================
 
