@@ -12,7 +12,7 @@ RUN pip install --no-cache-dir \
     aiosqlite==0.20.0 \
     redis==5.0.3 \
     httpx==0.27.0 \
-    pydantic==2.6.4 \
+    pydantic==2.5.3 \
     python-dotenv==1.0.1
 
 COPY . /app/
