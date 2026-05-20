@@ -1,3 +1,5 @@
+from typing import Tuple
+
 PET_SHOP_ITEMS = {
     "food": {"name": "🍔 Вкусняшка", "price": 10, "effect": "health", "amount": 20},
     "toy": {"name": "🎾 Мячик", "price": 15, "effect": "happiness", "amount": 20},
