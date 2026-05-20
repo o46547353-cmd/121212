@@ -57,11 +57,7 @@ async def main():
         logging.error("DATABASE_URL is missing in .env")
         return
 
-    # Force using 'db' as hostname instead of localhost/127.0.0.1
-    db_url = db_url.replace("localhost", "db").replace("127.0.0.1", "db")
-
-    # Log the exact connection string per request
-    logging.info(f"Connection string: postgresql+asyncpg://edtech_user:secret_pass@db:5432/edtech_bot_db")
+    logging.info(f"Подключение к БД по адресу: {db_url}")
 
     redis_url = os.getenv("REDIS_URL", "redis://redis:6379/0")
 
