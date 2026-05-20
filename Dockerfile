@@ -10,7 +10,6 @@ RUN pip install --no-cache-dir \
     aiogram==3.4.1 \
     sqlalchemy==2.0.28 \
     aiosqlite==0.20.0 \
-    redis==5.0.3 \
     httpx==0.27.0 \
     pydantic==2.5.3 \
     python-dotenv==1.0.1

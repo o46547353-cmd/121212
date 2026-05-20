@@ -2,9 +2,10 @@ import asyncio
 import os
 import logging
 from typing import Callable, Dict, Any, Awaitable
+from pathlib import Path
 from aiogram import Bot, Dispatcher, BaseMiddleware
 from aiogram.types import TelegramObject
-from aiogram.fsm.storage.redis import RedisStorage
+from aiogram.fsm.storage.memory import MemoryStorage
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from dotenv import load_dotenv
 
@@ -48,20 +49,22 @@ async def init_db(engine):
 
 async def main():
     logging.info("Попытка загрузки токена из переменных окружения...")
-    bot_token = os.getenv("BOT_TOKEN") or os.getenv("API_TOKEN")
+    bot_token = os.getenv("API_TOKEN")
     if not bot_token:
-        logging.error("Ошибка: токен не найден ни в BOT_TOKEN, ни в API_TOKEN")
+        logging.error("Ошибка: токен не найден в переменной API_TOKEN")
         return
 
     masked_token = f"{bot_token[:5]}...{bot_token[-5:]}" if len(bot_token) > 10 else "***"
     logging.info(f"Токен загружен: {masked_token}")
 
-    # Use SQLite by default if not strictly provided in .env
-    db_url = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///bot_database.db")
+    # Set up Bothost persistent database directory
+    data_dir = Path("/app/data")
+    data_dir.mkdir(parents=True, exist_ok=True)
+
+    default_db_url = f"sqlite+aiosqlite:///{data_dir}/bot_database.db"
+    db_url = os.getenv("DATABASE_URL", default_db_url)
 
     logging.info(f"Подключение к БД по адресу: {db_url}")
-
-    redis_url = os.getenv("REDIS_URL", "redis://redis:6379/0")
 
     # DB Init
     engine = create_async_engine(db_url, echo=False)
@@ -75,7 +78,7 @@ async def main():
 
     # Bot & Dispatcher Init
     bot = Bot(token=bot_token)
-    storage = RedisStorage.from_url(redis_url)
+    storage = MemoryStorage()
     dp = Dispatcher(storage=storage)
 
     # Middlewares & Routers
