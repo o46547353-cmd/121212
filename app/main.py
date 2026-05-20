@@ -47,10 +47,14 @@ async def init_db(engine):
     return False
 
 async def main():
-    bot_token = os.getenv("BOT_TOKEN")
+    logging.info("Попытка загрузки токена из переменных окружения...")
+    bot_token = os.getenv("BOT_TOKEN") or os.getenv("API_TOKEN")
     if not bot_token:
-        logging.error("BOT_TOKEN is missing in .env")
+        logging.error("Ошибка: токен не найден ни в BOT_TOKEN, ни в API_TOKEN")
         return
+
+    masked_token = f"{bot_token[:5]}...{bot_token[-5:]}" if len(bot_token) > 10 else "***"
+    logging.info(f"Токен загружен: {masked_token}")
 
     # Use SQLite by default if not strictly provided in .env
     db_url = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///bot_database.db")
