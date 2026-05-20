@@ -9,11 +9,12 @@ from app.db.models import User, RoleEnum, AgeGroupEnum, LevelEnum, TrackEnum, Qu
 from app.bot.states import RegistrationState, QuestCreationState, QuestSolvingState
 from app.bot.keyboards import (
     get_role_selection_kb, get_age_group_kb, get_level_kb,
-    get_student_menu, get_tutor_menu, get_admin_menu, get_skip_kb, get_track_kb
+    get_student_menu, get_tutor_menu, get_admin_menu, get_skip_kb, get_track_kb, get_quest_creation_menu
 )
 from app.services.ai import analyze_student_answer
 from app.services.gamification import calculate_earned_xp, update_user_league
 from app.services.srs import process_ai_mistakes, get_pending_reviews
+from app.services.quest_library import get_random_pop_culture_quest
 
 router = Router()
 
@@ -26,15 +27,15 @@ async def cmd_start(message: Message, state: FSMContext, session: AsyncSession):
 
     if user:
         if user.role == RoleEnum.admin:
-            await message.answer("Добро пожаловать в Панель Админа!", reply_markup=get_admin_menu())
+            await message.answer("🔐 <b>Добро пожаловать в Панель Админа!</b>", reply_markup=get_admin_menu())
         elif user.role == RoleEnum.tutor:
-            await message.answer("Добро пожаловать, Репетитор!", reply_markup=get_tutor_menu())
+            await message.answer("👨‍🏫 <b>Добро пожаловать, Репетитор!</b>", reply_markup=get_tutor_menu())
         else:
-            await message.answer("С возвращением, Ученик!", reply_markup=get_student_menu())
+            await message.answer("🎒 <b>С возвращением, Ученик!</b>", reply_markup=get_student_menu())
     else:
         await state.set_state(RegistrationState.waiting_for_role)
         await message.answer(
-            "Добро пожаловать! Выберите вашу роль:",
+            "👋 <b>Добро пожаловать!</b> Выберите вашу роль, чтобы начать:",
             reply_markup=get_role_selection_kb()
         )
 
@@ -45,10 +46,10 @@ async def process_role_selection(callback: CallbackQuery, state: FSMContext):
 
     if role == "student":
         await state.set_state(RegistrationState.waiting_for_age_group)
-        await callback.message.edit_text("Выберите вашу возрастную группу:", reply_markup=get_age_group_kb())
+        await callback.message.edit_text("🎯 Выберите вашу <b>возрастную группу</b>:", reply_markup=get_age_group_kb())
     else:
         await state.set_state(RegistrationState.waiting_for_full_name)
-        await callback.message.edit_text("Введите ваше полное имя:")
+        await callback.message.edit_text("📝 Введите ваше <b>полное имя</b>:")
 
 @router.callback_query(RegistrationState.waiting_for_age_group, F.data.startswith("age_"))
 async def process_age_group(callback: CallbackQuery, state: FSMContext):
@@ -56,7 +57,7 @@ async def process_age_group(callback: CallbackQuery, state: FSMContext):
     await state.update_data(age_group=age_group)
 
     await state.set_state(RegistrationState.waiting_for_level)
-    await callback.message.edit_text("Выберите ваш уровень английского:", reply_markup=get_level_kb())
+    await callback.message.edit_text("📈 Выберите ваш <b>уровень английского</b>:", reply_markup=get_level_kb())
 
 @router.callback_query(RegistrationState.waiting_for_level, F.data.startswith("level_"))
 async def process_level(callback: CallbackQuery, state: FSMContext):
@@ -65,7 +66,7 @@ async def process_level(callback: CallbackQuery, state: FSMContext):
 
     await state.set_state(RegistrationState.waiting_for_tutor_id)
     await callback.message.edit_text(
-        "Введите ID вашего репетитора (если есть), или нажмите 'Пропустить':",
+        "🔗 Введите <b>ID вашего репетитора</b> (если есть), или нажмите «Пропустить»:",
         reply_markup=get_skip_kb()
     )
 
@@ -77,16 +78,16 @@ async def process_tutor_id(event: Message | CallbackQuery, state: FSMContext):
         try:
             tutor_id = int(event.text)
         except ValueError:
-            await event.answer("Пожалуйста, введите корректный ID репетитора (число) или используйте кнопку 'Пропустить'.")
+            await event.answer("⚠️ Пожалуйста, введите корректный <b>ID репетитора (число)</b> или используйте кнопку «Пропустить».")
             return
 
     await state.update_data(tutor_id=tutor_id)
     await state.set_state(RegistrationState.waiting_for_full_name)
 
     if isinstance(event, Message):
-        await event.answer("Отлично! Теперь введите ваше полное имя:")
+        await event.answer("Отлично! Теперь введите ваше <b>полное имя</b>:")
     else:
-        await event.message.edit_text("Отлично! Теперь введите ваше полное имя:")
+        await event.message.edit_text("Отлично! Теперь введите ваше <b>полное имя</b>:")
 
 @router.message(RegistrationState.waiting_for_full_name)
 async def process_full_name(message: Message, state: FSMContext, session: AsyncSession):
@@ -153,7 +154,7 @@ async def admin_stubs(message: Message):
 
 # ================= TUTOR HANDLERS =================
 
-@router.message(F.text == "Мои ученики")
+@router.message(F.text == "👥 Мои ученики")
 async def tutor_students(message: Message, session: AsyncSession):
     user_query = await session.execute(select(User).where(User.telegram_id == message.from_user.id))
     tutor = user_query.scalar_one_or_none()
@@ -164,15 +165,15 @@ async def tutor_students(message: Message, session: AsyncSession):
     students = students_query.scalars().all()
 
     if not students:
-        await message.answer("У вас пока нет учеников. Пусть они введут ваш ID при регистрации: " + str(tutor.id))
+        await message.answer(f"🔍 У вас пока нет учеников. Пусть они введут ваш ID при регистрации: <code>{tutor.id}</code>")
         return
 
-    text = "Ваши ученики:\n"
+    text = "🎓 <b>Ваши ученики:</b>\n\n"
     for s in students:
-        text += f"- {s.full_name} (ID: {s.id}, Уровень: {s.level.value if s.level else 'N/A'})\n"
+        text += f"🔹 <b>{s.full_name}</b> (ID: <code>{s.id}</code>, Уровень: {s.level.value if s.level else 'N/A'})\n"
     await message.answer(text)
 
-@router.message(F.text == "Назначить квест")
+@router.message(F.text == "🎯 Назначить квест")
 async def start_quest_creation(message: Message, state: FSMContext, session: AsyncSession):
     user_query = await session.execute(select(User).where(User.telegram_id == message.from_user.id))
     tutor = user_query.scalar_one_or_none()
@@ -180,14 +181,14 @@ async def start_quest_creation(message: Message, state: FSMContext, session: Asy
         return
 
     await state.set_state(QuestCreationState.waiting_for_student_id)
-    await message.answer("Введите ID ученика (число), которому хотите назначить квест:")
+    await message.answer("📝 Введите <b>ID ученика</b> (число), которому хотите назначить квест:")
 
 @router.message(QuestCreationState.waiting_for_student_id)
 async def quest_student_id(message: Message, state: FSMContext, session: AsyncSession):
     try:
         student_id = int(message.text)
     except ValueError:
-        await message.answer("ID должен быть числом.")
+        await message.answer("⚠️ ID должен быть <b>числом</b>.")
         return
 
     # Verify student exists and belongs to this tutor
@@ -198,12 +199,12 @@ async def quest_student_id(message: Message, state: FSMContext, session: AsyncSe
     student = student_query.scalar_one_or_none()
 
     if not student:
-        await message.answer("Ученик не найден или не привязан к вам.")
+        await message.answer("❌ Ученик не найден или не привязан к вам.")
         return
 
     await state.update_data(student_id=student_id)
     await state.set_state(QuestCreationState.waiting_for_track)
-    await message.answer("Выберите трек квеста:", reply_markup=get_track_kb())
+    await message.answer("🗂 Выберите <b>трек квеста</b>:", reply_markup=get_track_kb())
 
 @router.callback_query(QuestCreationState.waiting_for_track, F.data.startswith("track_"))
 async def quest_track(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
@@ -216,18 +217,31 @@ async def quest_track(callback: CallbackQuery, state: FSMContext, session: Async
     # Check for pending SRS reviews
     pending_reviews = await get_pending_reviews(session, student_id)
 
-    prompt_text = "Отправьте текст/описание квеста для ученика:"
+    prompt_text = "✍️ <b>Отправьте текст/описание квеста</b> для ученика. Вы также можете сгенерировать случайный поп-культурный квест!"
     if pending_reviews:
         prompt_text += "\n\n⚠️ Ученику необходимо повторить (интервальное повторение):\n"
         for review in pending_reviews:
-            prompt_text += f"- {review}\n"
+            prompt_text += f"- <i>{review}</i>\n"
         prompt_text += "\nПожалуйста, включите эти слова/темы в текст задания."
 
     await state.set_state(QuestCreationState.waiting_for_content)
-    await callback.message.edit_text(prompt_text)
+
+    # Clean up the inline keyboard and send new message with reply keyboard
+    await callback.message.delete()
+    await callback.message.answer(prompt_text, reply_markup=get_quest_creation_menu())
 
 @router.message(QuestCreationState.waiting_for_content)
 async def quest_content(message: Message, state: FSMContext, session: AsyncSession):
+    if message.text == "⬅️ Отмена":
+        await state.clear()
+        await message.answer("❌ Назначение квеста отменено.", reply_markup=get_tutor_menu())
+        return
+
+    content = message.text
+    if message.text == "🎲 Сгенерировать квест (Поп-культура)":
+        content = get_random_pop_culture_quest()
+        await message.answer(f"🎲 <i>Сгенерирован квест:</i>\n\n{content}")
+
     data = await state.get_data()
     user_query = await session.execute(select(User).where(User.telegram_id == message.from_user.id))
     tutor = user_query.scalar_one_or_none()
@@ -236,15 +250,15 @@ async def quest_content(message: Message, state: FSMContext, session: AsyncSessi
         tutor_id=tutor.id,
         student_id=data["student_id"],
         track=TrackEnum(data["track"]),
-        content=message.text
+        content=content
     )
     session.add(quest)
     await session.commit()
     await state.clear()
 
-    await message.answer("Квест успешно назначен!")
+    await message.answer("✅ <b>Квест успешно назначен!</b>", reply_markup=get_tutor_menu())
 
-@router.message(F.text == "Управление подпиской")
+@router.message(F.text == "💳 Управление подпиской")
 async def tutor_subscription(message: Message, session: AsyncSession):
     user_query = await session.execute(select(User).where(User.telegram_id == message.from_user.id))
     tutor = user_query.scalar_one_or_none()
@@ -255,11 +269,11 @@ async def tutor_subscription(message: Message, session: AsyncSession):
     sub = sub_query.scalar_one_or_none()
 
     if sub and sub.is_active:
-        await message.answer("Ваша подписка: АКТИВНА (Premium).")
+        await message.answer("💎 Ваша подписка: <b>АКТИВНА (Premium)</b>.")
     else:
-        await message.answer("Ваша подписка: НЕАКТИВНА.\nСтоимость: 250 руб/мес.")
+        await message.answer("🔒 Ваша подписка: <b>НЕАКТИВНА</b>.\nСтоимость: 250 руб/мес.")
 
-@router.message(F.text == "AI-Отчеты по ученикам")
+@router.message(F.text == "🤖 AI-Отчеты по ученикам")
 async def tutor_ai_reports(message: Message, session: AsyncSession):
     # Fetch recent progresses
     user_query = await session.execute(select(User).where(User.telegram_id == message.from_user.id))
@@ -271,19 +285,22 @@ async def tutor_ai_reports(message: Message, session: AsyncSession):
     progresses = progress_query.scalars().all()
 
     if not progresses:
-        await message.answer("Пока нет отчетов.")
+        await message.answer("📭 <b>Пока нет отчетов.</b> Ученики еще не выполнили квесты.")
         return
 
-    text = "Последние AI-отчеты:\n\n"
+    text = "🤖 <b>Последние AI-отчеты:</b>\n\n"
     for p in progresses:
         analytics = p.tutor_analytics or {}
-        text += f"Квест ID {p.quest_id}\nОшибки: {analytics.get('grammar_errors', 'Нет данных')}\nСовет: {analytics.get('next_lesson_advice', '')}\n---\n"
+        text += f"🔖 <b>Квест ID:</b> {p.quest_id}\n"
+        text += f"❌ <b>Ошибки:</b> {analytics.get('grammar_errors', 'Нет данных')}\n"
+        text += f"💡 <b>Совет:</b> <i>{analytics.get('next_lesson_advice', '')}</i>\n"
+        text += "〰️〰️〰️\n"
 
     await message.answer(text)
 
 # ================= STUDENT HANDLERS =================
 
-@router.message(F.text == "Мои квесты")
+@router.message(F.text == "⚔️ Мои квесты")
 async def student_quests(message: Message, state: FSMContext, session: AsyncSession):
     user_query = await session.execute(select(User).where(User.telegram_id == message.from_user.id))
     student = user_query.scalar_one_or_none()
@@ -294,7 +311,7 @@ async def student_quests(message: Message, state: FSMContext, session: AsyncSess
     quests = quests_query.scalars().all()
 
     if not quests:
-        await message.answer("У тебя пока нет активных квестов! Отдыхай.")
+        await message.answer("🎉 <b>У тебя пока нет активных квестов! Отдыхай.</b>")
         return
 
     # Get the first one for simplicity
@@ -302,7 +319,7 @@ async def student_quests(message: Message, state: FSMContext, session: AsyncSess
     await state.update_data(current_quest_id=q.id)
     await state.set_state(QuestSolvingState.waiting_for_answer)
 
-    await message.answer(f"Твой активный квест (Трек: {q.track.value}):\n\n{q.content}\n\nНапиши свой ответ ниже:")
+    await message.answer(f"⚔️ <b>Твой активный квест</b> (Трек: <i>{q.track.value}</i>):\n\n<blockquote>{q.content}</blockquote>\n\n✍️ <i>Напиши свой ответ ниже:</i>")
 
 @router.message(QuestSolvingState.waiting_for_answer)
 async def solve_quest(message: Message, state: FSMContext, session: AsyncSession):
@@ -320,7 +337,7 @@ async def solve_quest(message: Message, state: FSMContext, session: AsyncSession
         return
 
     # Call AI
-    await message.answer("Анализирую твой ответ с помощью AI...")
+    await message.answer("⏳ <b>Анализирую твой ответ с помощью AI...</b>")
 
     age_group = student.age_group.value if student.age_group else "unknown"
     level = student.level.value if student.level else "unknown"
@@ -360,24 +377,24 @@ async def solve_quest(message: Message, state: FSMContext, session: AsyncSession
     await state.clear()
 
     feedback = ai_result.get('student_feedback', 'Отлично выполнено!')
-    xp_msg = f"\n\n✨ Ты заработал +{earned_xp} XP! Текущий опыт: {student.xp} XP."
+    xp_msg = f"\n\n✨ <b>Ты заработал +{earned_xp} XP!</b> Текущий опыт: <code>{student.xp} XP</code>."
 
-    final_msg = f"Квест сдан!\n\nAI Фидбек:\n{feedback}{xp_msg}"
+    final_msg = f"✅ <b>Квест сдан!</b>\n\n<b>🤖 AI Фидбек:</b>\n<i>{feedback}</i>{xp_msg}"
     if league_msg:
         final_msg += f"\n\n{league_msg}"
 
     await message.answer(final_msg)
 
-@router.message(F.text == "Мой прогресс (AI-анализ)")
+@router.message(F.text == "📊 Мой прогресс (AI-анализ)")
 async def student_progress(message: Message, session: AsyncSession):
     user_query = await session.execute(select(User).where(User.telegram_id == message.from_user.id))
     student = user_query.scalar_one_or_none()
     if not student or student.role != RoleEnum.student:
         return
 
-    await message.answer(f"Твой стрейк: {student.streak} дней подряд! Так держать!")
+    await message.answer(f"🔥 <b>Твой стрейк:</b> <code>{student.streak} дней подряд!</code> Так держать!")
 
-@router.message(F.text == "Мой профиль")
+@router.message(F.text == "👤 Мой профиль")
 async def student_profile(message: Message, session: AsyncSession):
     user_query = await session.execute(select(User).where(User.telegram_id == message.from_user.id))
     student = user_query.scalar_one_or_none()
@@ -385,9 +402,18 @@ async def student_profile(message: Message, session: AsyncSession):
     pet_query = await session.execute(select(Pet).where(Pet.user_id == student.id))
     pet = pet_query.scalar_one_or_none()
 
-    pet_info = f"Питомец: {pet.name}\nЗдоровье: {pet.health}%\nСчастье: {pet.happiness}%" if pet else "Нет питомца"
+    pet_info = f"🐾 <b>Питомец:</b> {pet.name}\n❤️ <b>Здоровье:</b> {pet.health}%\n😊 <b>Счастье:</b> {pet.happiness}%" if pet else "Нет питомца"
 
-    await message.answer(f"Профиль: {student.full_name}\nУровень: {student.level.value if student.level else '?'}\n\n{pet_info}")
+    league_val = student.league.value if student.league else "Бронза"
+
+    await message.answer(
+        f"👤 <b>Профиль:</b> {student.full_name}\n"
+        f"📈 <b>Уровень:</b> {student.level.value if student.level else '?'}\n"
+        f"🏆 <b>Лига:</b> {league_val}\n"
+        f"✨ <b>Опыт:</b> {student.xp} XP\n"
+        f"🔥 <b>Стрейк:</b> {student.streak_days} дней\n\n"
+        f"{pet_info}"
+    )
 
 # ================= TEST COMMAND =================
 

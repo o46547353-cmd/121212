@@ -4,6 +4,7 @@ import logging
 from typing import Callable, Dict, Any, Awaitable
 from pathlib import Path
 from aiogram import Bot, Dispatcher, BaseMiddleware
+from aiogram.client.default import DefaultBotProperties
 from aiogram.types import TelegramObject
 from aiogram.fsm.storage.memory import MemoryStorage
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
@@ -77,7 +78,7 @@ async def main():
     session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
     # Bot & Dispatcher Init
-    bot = Bot(token=bot_token)
+    bot = Bot(token=bot_token, default=DefaultBotProperties(parse_mode="HTML"))
     storage = MemoryStorage()
     dp = Dispatcher(storage=storage)
 
