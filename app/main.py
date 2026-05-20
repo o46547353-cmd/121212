@@ -52,10 +52,8 @@ async def main():
         logging.error("BOT_TOKEN is missing in .env")
         return
 
-    db_url = os.getenv("DATABASE_URL")
-    if not db_url:
-        logging.error("DATABASE_URL is missing in .env")
-        return
+    # Use SQLite by default if not strictly provided in .env
+    db_url = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///bot_database.db")
 
     logging.info(f"Подключение к БД по адресу: {db_url}")
 
