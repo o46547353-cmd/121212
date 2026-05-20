@@ -5,7 +5,7 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE 1
 ENV PYTHONUNBUFFERED 1
 
-# Install dependencies directly
+# Исправлена версия pydantic до совместимой с aiogram 3.4.1
 RUN pip install --no-cache-dir \
     aiogram==3.4.1 \
     sqlalchemy==2.0.28 \
