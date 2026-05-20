@@ -31,6 +31,13 @@ class TrackEnum(str, enum.Enum):
     reading = "reading"
     writing = "writing"
 
+class LeagueEnum(str, enum.Enum):
+    bronze = "Бронза"
+    silver = "Серебро"
+    gold = "Золото"
+    platinum = "Платина"
+    diamond = "Алмаз"
+
 class User(Base):
     __tablename__ = "users"
 
@@ -44,6 +51,9 @@ class User(Base):
     level: Mapped[Optional[LevelEnum]] = mapped_column(Enum(LevelEnum), nullable=True)
     tutor_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
     streak: Mapped[int] = mapped_column(Integer, default=0)
+    streak_days: Mapped[int] = mapped_column(Integer, default=0)
+    xp: Mapped[int] = mapped_column(Integer, default=0)
+    league: Mapped[LeagueEnum] = mapped_column(Enum(LeagueEnum), default=LeagueEnum.bronze)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -57,6 +67,7 @@ class User(Base):
     quests_assigned: Mapped[List["Quest"]] = relationship("Quest", back_populates="tutor", foreign_keys="Quest.tutor_id")
     quests_received: Mapped[List["Quest"]] = relationship("Quest", back_populates="student", foreign_keys="Quest.student_id")
     progresses: Mapped[List["Progress"]] = relationship("Progress", back_populates="student")
+    mistakes: Mapped[List["UserMistake"]] = relationship("UserMistake", back_populates="user")
 
 class Subscription(Base):
     __tablename__ = "subscriptions"
@@ -111,3 +122,15 @@ class Pet(Base):
     happiness: Mapped[int] = mapped_column(Integer, default=100)
 
     user: Mapped["User"] = relationship("User", back_populates="pet")
+
+class UserMistake(Base):
+    __tablename__ = "user_mistakes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    topic: Mapped[str] = mapped_column(String(255))
+    mistake_count: Mapped[int] = mapped_column(Integer, default=1)
+    next_review_date: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    user: Mapped["User"] = relationship("User", back_populates="mistakes")

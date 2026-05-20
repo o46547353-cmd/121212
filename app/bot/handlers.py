@@ -12,6 +12,8 @@ from app.bot.keyboards import (
     get_student_menu, get_tutor_menu, get_admin_menu, get_skip_kb, get_track_kb
 )
 from app.services.ai import analyze_student_answer
+from app.services.gamification import calculate_earned_xp, update_user_league
+from app.services.srs import process_ai_mistakes, get_pending_reviews
 
 router = Router()
 
@@ -204,12 +206,25 @@ async def quest_student_id(message: Message, state: FSMContext, session: AsyncSe
     await message.answer("Выберите трек квеста:", reply_markup=get_track_kb())
 
 @router.callback_query(QuestCreationState.waiting_for_track, F.data.startswith("track_"))
-async def quest_track(callback: CallbackQuery, state: FSMContext):
+async def quest_track(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
     track = callback.data.split("_")[1]
     await state.update_data(track=track)
 
+    data = await state.get_data()
+    student_id = data.get("student_id")
+
+    # Check for pending SRS reviews
+    pending_reviews = await get_pending_reviews(session, student_id)
+
+    prompt_text = "Отправьте текст/описание квеста для ученика:"
+    if pending_reviews:
+        prompt_text += "\n\n⚠️ Ученику необходимо повторить (интервальное повторение):\n"
+        for review in pending_reviews:
+            prompt_text += f"- {review}\n"
+        prompt_text += "\nПожалуйста, включите эти слова/темы в текст задания."
+
     await state.set_state(QuestCreationState.waiting_for_content)
-    await callback.message.edit_text("Отправьте текст/описание квеста для ученика:")
+    await callback.message.edit_text(prompt_text)
 
 @router.message(QuestCreationState.waiting_for_content)
 async def quest_content(message: Message, state: FSMContext, session: AsyncSession):
@@ -322,6 +337,16 @@ async def solve_quest(message: Message, state: FSMContext, session: AsyncSession
 
     quest.is_completed = True
     student.streak += 1
+    student.streak_days += 1
+
+    # Process SRS mistakes
+    tutor_analytics = ai_result.get("tutor_analytics", {})
+    await process_ai_mistakes(session, student.id, tutor_analytics)
+
+    # Process Gamification XP and League
+    earned_xp = calculate_earned_xp(tutor_analytics)
+    student.xp += earned_xp
+    student, league_msg = update_user_league(student)
 
     # Increase pet happiness/health
     pet_query = await session.execute(select(Pet).where(Pet.user_id == student.id))
@@ -335,7 +360,13 @@ async def solve_quest(message: Message, state: FSMContext, session: AsyncSession
     await state.clear()
 
     feedback = ai_result.get('student_feedback', 'Отлично выполнено!')
-    await message.answer(f"Квест сдан!\n\nAI Фидбек:\n{feedback}")
+    xp_msg = f"\n\n✨ Ты заработал +{earned_xp} XP! Текущий опыт: {student.xp} XP."
+
+    final_msg = f"Квест сдан!\n\nAI Фидбек:\n{feedback}{xp_msg}"
+    if league_msg:
+        final_msg += f"\n\n{league_msg}"
+
+    await message.answer(final_msg)
 
 @router.message(F.text == "Мой прогресс (AI-анализ)")
 async def student_progress(message: Message, session: AsyncSession):
