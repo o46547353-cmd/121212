@@ -32,22 +32,39 @@ class DbSessionMiddleware(BaseMiddleware):
             return await handler(event, data)
 
 # --- Main setup ---
+async def init_db(engine):
+    retries = 5
+    for i in range(retries):
+        try:
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+            logging.info("Database initialized successfully.")
+            return True
+        except Exception as e:
+            logging.error(f"Database connection failed (attempt {i+1}/{retries}): {e}")
+            await asyncio.sleep(5)
+    return False
+
 async def main():
     bot_token = os.getenv("BOT_TOKEN")
     if not bot_token:
-        raise ValueError("BOT_TOKEN is missing in .env")
+        logging.error("BOT_TOKEN is missing in .env")
+        return
 
     db_url = os.getenv("DATABASE_URL")
     if not db_url:
-        raise ValueError("DATABASE_URL is missing in .env")
+        logging.error("DATABASE_URL is missing in .env")
+        return
 
     redis_url = os.getenv("REDIS_URL", "redis://redis:6379/0")
 
     # DB Init
     engine = create_async_engine(db_url, echo=False)
 
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    success = await init_db(engine)
+    if not success:
+        logging.error("Could not connect to the database after multiple retries. Exiting.")
+        return
 
     session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
