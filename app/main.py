@@ -33,7 +33,8 @@ class DbSessionMiddleware(BaseMiddleware):
 
 # --- Main setup ---
 async def init_db(engine):
-    retries = 5
+    # Retry logic: up to 10 retries, waiting 3 seconds each (total 30s)
+    retries = 10
     for i in range(retries):
         try:
             async with engine.begin() as conn:
@@ -42,7 +43,7 @@ async def init_db(engine):
             return True
         except Exception as e:
             logging.error(f"Database connection failed (attempt {i+1}/{retries}): {e}")
-            await asyncio.sleep(5)
+            await asyncio.sleep(3)
     return False
 
 async def main():
@@ -55,6 +56,12 @@ async def main():
     if not db_url:
         logging.error("DATABASE_URL is missing in .env")
         return
+
+    # Force using 'db' as hostname instead of localhost/127.0.0.1
+    db_url = db_url.replace("localhost", "db").replace("127.0.0.1", "db")
+
+    # Log the exact connection string per request
+    logging.info(f"Connection string: postgresql+asyncpg://edtech_user:secret_pass@db:5432/edtech_bot_db")
 
     redis_url = os.getenv("REDIS_URL", "redis://redis:6379/0")
 
