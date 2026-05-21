@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
 from app.db.models import User, RoleEnum, AgeGroupEnum, LevelEnum, TrackEnum, Quest, Subscription, Pet, Progress
+from aiogram.types import FSInputFile
 from app.bot.states import RegistrationState, QuestCreationState, QuestSolvingState
 from app.bot.keyboards import (
     get_role_selection_kb, get_age_group_kb, get_level_kb,
@@ -16,8 +17,12 @@ from app.services.gamification import calculate_earned_xp_and_coins, update_user
 from app.services.srs import process_ai_mistakes, get_pending_reviews, generate_srs_test
 from app.services.quest_library import get_random_pop_culture_quest
 from app.services.pet_shop import buy_pet_item
+from app.services.tracklist import get_random_track
+from app.services.audio import fetch_itunes_preview, generate_listening_audio, get_random_listening_text
+from app.services.duolingo import get_random_duolingo_question
 from sqlalchemy import update
 from app.db.models import Clan
+import os
 
 router = Router()
 
@@ -276,7 +281,7 @@ async def tutor_subscription(message: Message, session: AsyncSession):
     else:
         await message.answer("🔒 Ваша подписка: <b>НЕАКТИВНА</b>.\nСтоимость: 250 руб/мес.")
 
-@router.message(F.text == "🤖 AI-Отчеты по ученикам")
+@router.message(F.text.in_(["🤖 AI-Отчеты по ученикам", "🤖 AI-Аналитика ошибок"]))
 async def tutor_ai_reports(message: Message, session: AsyncSession):
     # Fetch recent progresses
     user_query = await session.execute(select(User).where(User.telegram_id == message.from_user.id))
@@ -526,6 +531,57 @@ async def student_boss_battle(message: Message, state: FSMContext, session: Asyn
 
     await message.answer(f"🔥 <b>AI БОСС БАТТЛ НАЧАЛСЯ!</b> 🔥\n\n<blockquote>{boss_prompt}</blockquote>\n\n⚔️ <i>Напиши свой ответ, чтобы нанести урон боссу:</i>")
 
+@router.message(F.text == "🎵 Музыкальный Вайб")
+async def student_music_vibe(message: Message, session: AsyncSession):
+    track = get_random_track()
+    artist = track["artist"]
+    title = track["title"]
+
+    await message.answer(f"🎵 <b>Музыкальный квест!</b>\nИщу отрывок трека: <b>{artist} — {title}</b>...")
+
+    preview_url = await fetch_itunes_preview(artist, title)
+
+    if preview_url:
+        await message.answer_audio(
+            audio=preview_url,
+            caption=f"🎧 Послушай этот трек ({artist} - {title}) и опиши его вайб на английском (используй 3 прилагательных)!"
+        )
+    else:
+        await message.answer(f"😔 Не удалось загрузить отрывок <b>{artist} — {title}</b>. Но ты всё равно можешь описать его вайб на английском!")
+
+@router.message(F.text == "🎧 Аудирование")
+async def student_listening(message: Message, session: AsyncSession):
+    await message.answer("🎧 <b>Генерирую аудио...</b> Пожалуйста, подождите.")
+
+    text = get_random_listening_text()
+    audio_file_path = generate_listening_audio(text)
+
+    # Send the audio file
+    audio_file = FSInputFile(audio_file_path)
+    await message.answer_voice(
+        voice=audio_file,
+        caption="📝 <b>Аудирование:</b> Прослушай запись и кратко перескажи ее суть на английском."
+    )
+
+    # Clean up the file after sending
+    try:
+        os.remove(audio_file_path)
+    except Exception:
+        pass
+
+@router.message(F.text == "🦉 Тренажер слов (Duolingo)")
+async def student_duolingo(message: Message, session: AsyncSession):
+    question_data = get_random_duolingo_question()
+
+    # Simple poll for Duolingo style
+    await message.answer_poll(
+        question=f"🦉 {question_data['question']}",
+        options=question_data['options'],
+        type="quiz",
+        correct_option_id=question_data['correct_index'],
+        is_anonymous=False
+    )
+
 @router.message(F.text == "📈 Лидерборд учеников")
 async def tutor_leaderboard(message: Message, session: AsyncSession):
     user_query = await session.execute(select(User).where(User.telegram_id == message.from_user.id))
@@ -575,11 +631,30 @@ async def tutor_create_clan(message: Message, session: AsyncSession):
 
     await message.answer(f"🏆 <b>Клан «{clan_name}» успешно создан!</b>\nВсе ваши текущие ученики добавлены в него автоматически.")
 
-@router.message(F.text == "📢 Рассылка ученикам")
-async def tutor_broadcast(message: Message, state: FSMContext, session: AsyncSession):
-    # A simple broadcast logic (Requires FSM usually, but we implement a placeholder for immediate response)
-    # The actual FSM would be similar to Quest Creation. For completeness without adding 3 more states:
-    await message.answer("📢 <b>Функция рассылки:</b>\nЧтобы сделать рассылку, перейдите в панель Админа или назначьте массовый квест. (Функционал массовой рассылки сообщений активируется в следующем патче).")
+@router.message(F.text == "🛡️ Топ Кланов")
+async def tutor_top_clans(message: Message, session: AsyncSession):
+    user_query = await session.execute(select(User).where(User.telegram_id == message.from_user.id))
+    tutor = user_query.scalar_one_or_none()
+    if not tutor or tutor.role != RoleEnum.tutor:
+        return
+
+    clans_query = await session.execute(
+        select(Clan).order_by(Clan.total_xp.desc()).limit(5)
+    )
+    clans = clans_query.scalars().all()
+
+    if not clans:
+        await message.answer("🔍 Пока нет ни одного клана на платформе.")
+        return
+
+    text = "🛡️ <b>Глобальный Топ Кланов:</b>\n\n"
+    for i, c in enumerate(clans, 1):
+        text += f"{i}. <b>{c.name}</b> — <code>{c.total_xp} XP</code>\n"
+    await message.answer(text)
+
+@router.message(F.text.in_(["🎧 Назначить Аудирование", "🎵 Назначить Музыку", "🦉 Назначить Тест (Duolingo)", "📢 Рассылка ученикам"]))
+async def tutor_advanced_stubs(message: Message, session: AsyncSession):
+    await message.answer("📢 <b>Функция в разработке:</b>\nЭто расширенная функция. Вы можете использовать обычное меню назначения квеста для текстовых заданий, пока эти модули автоматизируются в следующих патчах.")
 
 # ================= TEST COMMAND =================
 

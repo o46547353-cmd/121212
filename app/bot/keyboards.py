@@ -35,17 +35,21 @@ def get_track_kb() -> InlineKeyboardMarkup:
 def get_student_menu() -> ReplyKeyboardMarkup:
     kb = [
         [KeyboardButton(text="⚔️ Мои квесты"), KeyboardButton(text="🐉 AI Битва с Боссом")],
-        [KeyboardButton(text="📊 Мой прогресс (AI-анализ)"), KeyboardButton(text="👤 Мой профиль")],
-        [KeyboardButton(text="🧠 Карточки SRS (Повторение)"), KeyboardButton(text="🎁 Ежедневный бонус")],
-        [KeyboardButton(text="🛍️ Магазин питомца"), KeyboardButton(text="🛡️ Мой Клан")]
+        [KeyboardButton(text="🎧 Аудирование"), KeyboardButton(text="🎵 Музыкальный Вайб")],
+        [KeyboardButton(text="🦉 Тренажер слов (Duolingo)"), KeyboardButton(text="🧠 Карточки SRS")],
+        [KeyboardButton(text="📊 Мой прогресс"), KeyboardButton(text="👤 Мой профиль")],
+        [KeyboardButton(text="🎁 Ежедневный бонус"), KeyboardButton(text="🛍️ Магазин")],
+        [KeyboardButton(text="🛡️ Мой Клан")]
     ]
     return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
 
 def get_tutor_menu() -> ReplyKeyboardMarkup:
     kb = [
         [KeyboardButton(text="👥 Мои ученики"), KeyboardButton(text="🎯 Назначить квест")],
-        [KeyboardButton(text="🤖 AI-Отчеты по ученикам"), KeyboardButton(text="📈 Лидерборд учеников")],
-        [KeyboardButton(text="📢 Рассылка ученикам"), KeyboardButton(text="🏆 Создать Клан")],
+        [KeyboardButton(text="🎧 Назначить Аудирование"), KeyboardButton(text="🎵 Назначить Музыку")],
+        [KeyboardButton(text="🦉 Назначить Тест (Duolingo)"), KeyboardButton(text="📈 Лидерборд учеников")],
+        [KeyboardButton(text="🤖 AI-Аналитика ошибок"), KeyboardButton(text="🏆 Создать Клан")],
+        [KeyboardButton(text="🛡️ Топ Кланов"), KeyboardButton(text="📢 Рассылка ученикам")],
         [KeyboardButton(text="💳 Управление подпиской")]
     ]
     return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
